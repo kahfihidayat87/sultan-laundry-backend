@@ -11,6 +11,13 @@ Backend Node.js/Express + PostgreSQL untuk order, cart (Satuan + Kiloan), verifi
 - **Verifikasi & Penimbangan di outlet**: Admin input qty/berat riil → sistem hitung ulang harga final otomatis
 - Deteksi selisih harga signifikan (default >20%, bisa diatur di `.env`) → order berhenti dulu menunggu konfirmasi pelanggan sebelum lanjut cuci
 - Pembayaran dirancang **setelah verifikasi** (field `payment_status` baru relevan setelah `final_total_price` terisi)
+- **Harga Satuan**: tambahan biaya flat Rp5.000 per tingkat durasi (Reguler +0, Ekspress +5rb, Kilat +10rb, Prioritas +15rb, Darurat +20rb) — ditambahkan langsung ke harga/pcs, bukan dikalikan. **Harga Kiloan** tetap pakai multiplier seperti semula.
+- Jadwal pickup dibatasi 2 slot: "Pagi (08.00-10.00)" dan "Sore (14.00-16.00)"
+- Pin lokasi pickup (link Google Maps dari GPS pelanggan) tersimpan di `orders.pickup_location_pin`
+
+## ⚠️ Migrasi Database Wajib (Kalau Database Sudah Ada Sebelumnya)
+
+Kalau Neon Anda sudah pernah dijalankan `schema.sql`-nya sebelum update ini, kolom-kolom baru (`satuan_surcharge`, `pickup_location_pin`, `duration_extra`) **tidak akan otomatis muncul**. Buka **Neon Console → SQL Editor**, copy-paste **seluruh isi `schema.sql` yang baru** (termasuk blok "MIGRASI" di paling bawah file), lalu **Run**. Aman dijalankan berkali-kali, tidak akan menghapus data yang sudah ada.
 
 ## Setup Lokal (opsional, untuk development)
 
@@ -152,6 +159,9 @@ Selama `FIREBASE_ENABLED` belum `true`, sistem tetap jalan normal — notifikasi
 | `/api/admin/customers/:id` | GET | admin/owner | Detail pelanggan + histori deposit/loyalty/order |
 | `/api/admin/customers/:id/deposit` | POST | admin/owner | Topup/kurangi saldo deposit manual |
 | `/api/admin/customers/:id/membership` | PATCH | admin/owner | Ubah tier membership manual |
+| `/api/me` | GET | semua login | Profil sendiri (saldo deposit, poin, membership terbaru) |
+| `/api/me/deposit-history` | GET | semua login | Histori transaksi deposit milik sendiri |
+| `/api/me/loyalty-history` | GET | semua login | Histori transaksi loyalty point milik sendiri |
 
 ## Yang Masih Perlu Ditambahkan (Fase Berikutnya)
 

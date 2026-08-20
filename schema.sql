@@ -41,11 +41,12 @@ CREATE TABLE IF NOT EXISTS master_perfumes (
 );
 
 CREATE TABLE IF NOT EXISTS duration_multipliers (
-  id            SERIAL PRIMARY KEY,
-  code          VARCHAR(30) UNIQUE NOT NULL, -- reguler / ekspress / kilat / prioritas / darurat
-  name          VARCHAR(50) NOT NULL,
-  time_label    VARCHAR(50) NOT NULL,
-  multiplier    NUMERIC(4,2) NOT NULL DEFAULT 1
+  id                SERIAL PRIMARY KEY,
+  code              VARCHAR(30) UNIQUE NOT NULL, -- reguler / ekspress / kilat / prioritas / darurat
+  name              VARCHAR(50) NOT NULL,
+  time_label        VARCHAR(50) NOT NULL,
+  multiplier        NUMERIC(4,2) NOT NULL DEFAULT 1,  -- dipakai untuk KILOAN (harga/kg x multiplier)
+  satuan_surcharge  NUMERIC(10,2) NOT NULL DEFAULT 0  -- dipakai untuk SATUAN (tambahan Rp flat per pcs)
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS orders (
   kurir_delivery_id     INTEGER REFERENCES users(id),
   status                SMALLINT NOT NULL DEFAULT 1 CHECK (status BETWEEN 1 AND 8),
   pickup_address        TEXT NOT NULL,
+  pickup_location_pin   TEXT,             -- link Google Maps titik lokasi pickup (opsional)
   scheduled_pickup_time VARCHAR(100) NOT NULL,
   estimated_total_price NUMERIC(12,2) DEFAULT 0,
   final_total_price     NUMERIC(12,2),
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS order_items (
   -- input pelanggan saat checkout
   qty_input       NUMERIC(10,2),   -- pcs (satuan) atau estimasi kg (kiloan, boleh null)
   unit_price      NUMERIC(10,2),   -- harga/pcs (satuan) atau harga/kg (kiloan)
+  duration_extra  NUMERIC(10,2) DEFAULT 0, -- SATUAN saja: tambahan Rp per pcs sesuai durasi, dikunci saat order dibuat
 
   -- diisi admin saat verifikasi di outlet
   qty_verified    NUMERIC(10,2),   -- pcs riil (satuan) atau berat riil kg (kiloan)
@@ -180,12 +183,12 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 -- Seed data — master item, layanan kiloan, parfum, durasi
 -- ============================================================
 
-INSERT INTO duration_multipliers (code, name, time_label, multiplier) VALUES
-  ('reguler',   'Reguler',   '48–72 jam', 1.0),
-  ('ekspress',  'Ekspress',  '24–48 jam', 1.3),
-  ('kilat',     'Kilat',     '12–24 jam', 1.6),
-  ('prioritas', 'Prioritas', '6–12 jam',  2.0),
-  ('darurat',   'Darurat',   '3–6 jam',   2.5)
+INSERT INTO duration_multipliers (code, name, time_label, multiplier, satuan_surcharge) VALUES
+  ('reguler',   'Reguler',   '48–72 jam', 1.0, 0),
+  ('ekspress',  'Ekspress',  '24–48 jam', 1.3, 5000),
+  ('kilat',     'Kilat',     '12–24 jam', 1.6, 10000),
+  ('prioritas', 'Prioritas', '6–12 jam',  2.0, 15000),
+  ('darurat',   'Darurat',   '3–6 jam',   2.5, 20000)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO master_perfumes (name) VALUES
@@ -226,3 +229,21 @@ INSERT INTO master_items (code, name, base_price) VALUES
   ('sprei_single', 'Sprei Single', 10000),
   ('sprei_double', 'Sprei Double', 15000)
 ON CONFLICT (code) DO NOTHING;
+
+-- ============================================================
+-- MIGRASI (aman dijalankan ulang kapan saja, tidak akan menghapus data)
+-- Jalankan blok ini di Neon SQL Editor kalau database Anda dibuat
+-- SEBELUM kolom-kolom berikut ditambahkan.
+-- ============================================================
+
+-- Kolom baru: surcharge Satuan per durasi, pin lokasi pickup, duration_extra per item
+ALTER TABLE duration_multipliers ADD COLUMN IF NOT EXISTS satuan_surcharge NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_location_pin TEXT;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS duration_extra NUMERIC(10,2) DEFAULT 0;
+
+-- Isi nilai surcharge Satuan: kelipatan Rp5.000 per tingkat durasi
+UPDATE duration_multipliers SET satuan_surcharge = 0     WHERE code = 'reguler';
+UPDATE duration_multipliers SET satuan_surcharge = 5000  WHERE code = 'ekspress';
+UPDATE duration_multipliers SET satuan_surcharge = 10000 WHERE code = 'kilat';
+UPDATE duration_multipliers SET satuan_surcharge = 15000 WHERE code = 'prioritas';
+UPDATE duration_multipliers SET satuan_surcharge = 20000 WHERE code = 'darurat';
