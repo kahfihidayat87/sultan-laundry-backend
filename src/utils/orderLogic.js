@@ -32,9 +32,18 @@ function canTransition(currentStatus, role) {
 }
 
 // Hitung total baris order_item setelah qty_verified diisi admin di outlet.
+//
+// SATUAN: harga = (harga_dasar_per_pcs + surcharge_durasi) x qty
+//   Surcharge FLAT per tingkat durasi (Rp5.000/tingkat), dikunci di order_items.duration_extra
+//   saat order dibuat — bukan dikali multiplier.
+// KILOAN: harga = harga_per_kg x qty(kg) x multiplier_durasi (tetap seperti semula).
 function computeLineTotal(item, durationMultiplier) {
   const qty = Number(item.qty_verified ?? item.qty_input ?? 0);
   const unitPrice = Number(item.unit_price ?? 0);
+  if (item.item_type === "satuan") {
+    const extra = Number(item.duration_extra ?? 0);
+    return Math.round(qty * (unitPrice + extra));
+  }
   return Math.round(qty * unitPrice * durationMultiplier);
 }
 
