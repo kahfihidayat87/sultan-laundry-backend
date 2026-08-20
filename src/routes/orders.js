@@ -312,6 +312,44 @@ router.post("/:id/confirm-deviation", authenticate, requireRole("pelanggan"), as
 });
 
 // ---------------------------------------------------------
+// POST /api/orders/:id/admin-confirm-deviation — Admin konfirmasi selisih harga
+// atas nama pelanggan (mis. sudah dikonfirmasi via telepon/WA langsung).
+// body: { notes } — WAJIB diisi, untuk jejak audit siapa/kapan konfirmasi dilakukan.
+// ---------------------------------------------------------
+router.post("/:id/admin-confirm-deviation", authenticate, requireRole("admin", "owner"), async (req, res) => {
+  const { notes } = req.body;
+  if (!notes || !notes.trim()) {
+    return res.status(400).json({ error: "Catatan wajib diisi (mis. cara & waktu konfirmasi ke pelanggan)." });
+  }
+  try {
+    const orderResult = await pool.query(`SELECT * FROM orders WHERE id = $1`, [req.params.id]);
+    const order = orderResult.rows[0];
+    if (!order) return res.status(404).json({ error: "Order tidak ditemukan." });
+    if (order.status !== 4) return res.status(400).json({ error: "Order ini tidak sedang menunggu konfirmasi selisih harga." });
+
+    await pool.query(
+      `UPDATE orders SET status = 5, customer_confirmed_deviation = TRUE, updated_at = NOW() WHERE id = $1`,
+      [order.id]
+    );
+    await pool.query(
+      `INSERT INTO order_status_history (order_id, status, changed_by, notes) VALUES ($1, 5, $2, $3)`,
+      [order.id, req.user.id, `Dikonfirmasi Admin atas nama pelanggan: ${notes.trim()}`]
+    );
+
+    await notifyUser(order.customer_id, {
+      title: "Pesanan Dilanjutkan",
+      body: `Order #${order.id} lanjut ke Proses Cuci setelah dikonfirmasi Admin.`,
+      data: { orderId: order.id, type: "status_update" },
+    });
+
+    res.json({ message: "Order lanjut ke Proses Cuci." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal konfirmasi." });
+  }
+});
+
+// ---------------------------------------------------------
 // POST /api/orders/:id/payment-proof — pelanggan upload bukti transfer/QRIS
 // body: { method: 'bank_transfer'|'qris', imageBase64 }
 // Hanya bisa dilakukan setelah order diverifikasi (final_total_price sudah ada).
