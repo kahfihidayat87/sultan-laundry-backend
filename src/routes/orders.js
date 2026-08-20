@@ -14,24 +14,30 @@ const router = express.Router();
 // ]}
 // ---------------------------------------------------------
 router.post("/", authenticate, requireRole("pelanggan"), async (req, res) => {
-  const { pickupAddress, scheduledPickupTime, items } = req.body;
+  const { pickupAddress, pickupLocationPin, scheduledPickupTime, items } = req.body;
   if (!pickupAddress || !scheduledPickupTime || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Alamat, jadwal pickup, dan minimal 1 item wajib diisi." });
+  }
+  const ALLOWED_SCHEDULES = ["Pagi (08.00-10.00)", "Sore (14.00-16.00)"];
+  if (!ALLOWED_SCHEDULES.includes(scheduledPickupTime)) {
+    return res.status(400).json({ error: "Jadwal pickup harus salah satu dari: " + ALLOWED_SCHEDULES.join(", ") });
   }
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    const durationsResult = await client.query(`SELECT code, multiplier FROM duration_multipliers`);
-    const multByCode = Object.fromEntries(durationsResult.rows.map((d) => [d.code, Number(d.multiplier)]));
+    const durationsResult = await client.query(`SELECT code, multiplier, satuan_surcharge FROM duration_multipliers`);
+    const durationByCode = Object.fromEntries(
+      durationsResult.rows.map((d) => [d.code, { multiplier: Number(d.multiplier), surcharge: Number(d.satuan_surcharge) }])
+    );
 
     let estimatedTotal = 0;
     const preparedItems = [];
 
     for (const it of items) {
-      const mult = multByCode[it.durationCode];
-      if (!mult) throw new Error(`Durasi tidak valid: ${it.durationCode}`);
+      const durationInfo = durationByCode[it.durationCode];
+      if (!durationInfo) throw new Error(`Durasi tidak valid: ${it.durationCode}`);
 
       if (it.type === "satuan") {
         const masterResult = await client.query(
@@ -41,7 +47,8 @@ router.post("/", authenticate, requireRole("pelanggan"), async (req, res) => {
         if (masterResult.rows.length === 0) throw new Error(`Item satuan tidak dikenal: ${it.code}`);
         const unitPrice = Number(masterResult.rows[0].base_price);
         const qty = Number(it.qty || 0);
-        const lineEstimate = Math.round(unitPrice * qty * mult);
+        const extra = durationInfo.surcharge; // tambahan flat Rp5.000/tingkat, BUKAN dikali
+        const lineEstimate = Math.round((unitPrice + extra) * qty);
         estimatedTotal += lineEstimate;
         preparedItems.push({
           item_type: "satuan",
@@ -51,6 +58,7 @@ router.post("/", authenticate, requireRole("pelanggan"), async (req, res) => {
           notes: it.notes || null,
           qty_input: qty,
           unit_price: unitPrice,
+          duration_extra: extra,
         });
       } else if (it.type === "kiloan") {
         const masterResult = await client.query(
@@ -67,26 +75,28 @@ router.post("/", authenticate, requireRole("pelanggan"), async (req, res) => {
           notes: it.notes || null,
           qty_input: it.estimatedKg || null, // hanya estimasi tampilan, TIDAK dipakai untuk harga final
           unit_price: unitPrice,
+          duration_extra: 0,
         });
         // Baris kiloan sengaja TIDAK ditambahkan ke estimatedTotal — harga final baru ada
-        // setelah penimbangan riil di outlet (lihat endpoint /verify).
+        // setelah penimbangan riil di outlet (lihat endpoint /verify). Multiplier durasi
+        // tetap dipakai untuk Kiloan (bukan surcharge flat seperti Satuan).
       } else {
         throw new Error(`Tipe item tidak dikenal: ${it.type}`);
       }
     }
 
     const orderResult = await client.query(
-      `INSERT INTO orders (customer_id, status, pickup_address, scheduled_pickup_time, estimated_total_price)
-       VALUES ($1, 1, $2, $3, $4) RETURNING *`,
-      [req.user.id, pickupAddress, scheduledPickupTime, estimatedTotal]
+      `INSERT INTO orders (customer_id, status, pickup_address, pickup_location_pin, scheduled_pickup_time, estimated_total_price)
+       VALUES ($1, 1, $2, $3, $4, $5) RETURNING *`,
+      [req.user.id, pickupAddress, pickupLocationPin || null, scheduledPickupTime, estimatedTotal]
     );
     const order = orderResult.rows[0];
 
     for (const item of preparedItems) {
       await client.query(
-        `INSERT INTO order_items (order_id, item_type, item_name, duration_code, perfume, notes, qty_input, unit_price)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [order.id, item.item_type, item.item_name, item.duration_code, item.perfume, item.notes, item.qty_input, item.unit_price]
+        `INSERT INTO order_items (order_id, item_type, item_name, duration_code, perfume, notes, qty_input, unit_price, duration_extra)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [order.id, item.item_type, item.item_name, item.duration_code, item.perfume, item.notes, item.qty_input, item.unit_price, item.duration_extra]
       );
     }
 
