@@ -25,4 +25,3 @@ function requireRole(...roles) {
 }
 
 module.exports = { authenticate, requireRole };
-
