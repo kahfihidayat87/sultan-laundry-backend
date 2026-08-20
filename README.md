@@ -139,6 +139,7 @@ Selama `FIREBASE_ENABLED` belum `true`, sistem tetap jalan normal — notifikasi
 | `/api/orders/:id/status` | PATCH | admin/owner/kurir | Transisi status biasa |
 | `/api/orders/:id/verify` | POST | admin/owner | Verifikasi & penimbangan di outlet |
 | `/api/orders/:id/confirm-deviation` | POST | pelanggan | Konfirmasi selisih harga besar |
+| `/api/orders/:id/admin-confirm-deviation` | POST | admin/owner | Admin override konfirmasi selisih harga (mis. sudah dikonfirmasi via WA/telepon) |
 | `/api/orders/:id/payment-proof` | POST | pelanggan | Upload bukti transfer/QRIS |
 | `/api/orders/:id/payment-proof` | GET | pemilik/admin | Lihat bukti pembayaran order ini |
 | `/api/payment-settings` | GET | publik | Info rekening/QRIS aktif |
@@ -147,6 +148,10 @@ Selama `FIREBASE_ENABLED` belum `true`, sistem tetap jalan normal — notifikasi
 | `/api/payment-proofs/:id/review` | POST | admin/owner | Approve/reject bukti bayar |
 | `/api/notifications/register-token` | POST | semua login | Daftarkan device token FCM |
 | `/api/admin/summary` | GET | admin/owner | Ringkasan statistik dashboard |
+| `/api/admin/customers` | GET | admin/owner | Daftar pelanggan (bisa filter `?search=`) |
+| `/api/admin/customers/:id` | GET | admin/owner | Detail pelanggan + histori deposit/loyalty/order |
+| `/api/admin/customers/:id/deposit` | POST | admin/owner | Topup/kurangi saldo deposit manual |
+| `/api/admin/customers/:id/membership` | PATCH | admin/owner | Ubah tier membership manual |
 
 ## Yang Masih Perlu Ditambahkan (Fase Berikutnya)
 
