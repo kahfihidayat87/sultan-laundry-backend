@@ -121,7 +121,11 @@ router.post("/", authenticate, requireRole("pelanggan"), async (req, res) => {
 // ---------------------------------------------------------
 router.get("/:id", authenticate, async (req, res) => {
   try {
-    const orderResult = await pool.query(`SELECT * FROM orders WHERE id = $1`, [req.params.id]);
+    const orderResult = await pool.query(
+      `SELECT o.*, u.name AS customer_name, u.phone AS customer_phone
+       FROM orders o JOIN users u ON u.id = o.customer_id WHERE o.id = $1`,
+      [req.params.id]
+    );
     const order = orderResult.rows[0];
     if (!order) return res.status(404).json({ error: "Order tidak ditemukan." });
 
@@ -153,14 +157,19 @@ router.get("/", authenticate, async (req, res) => {
     const params = [];
     if (!isStaff) {
       params.push(req.user.id);
-      conditions.push(`customer_id = $${params.length}`);
+      conditions.push(`o.customer_id = $${params.length}`);
     }
     if (status) {
       params.push(status);
-      conditions.push(`status = $${params.length}`);
+      conditions.push(`o.status = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const result = await pool.query(`SELECT * FROM orders ${where} ORDER BY created_at DESC`, params);
+    const result = await pool.query(
+      `SELECT o.*, u.name AS customer_name, u.phone AS customer_phone
+       FROM orders o JOIN users u ON u.id = o.customer_id
+       ${where} ORDER BY o.created_at DESC`,
+      params
+    );
     res.json({ orders: result.rows.map((o) => ({ ...o, status_label: STAGES[o.status] })) });
   } catch (err) {
     console.error(err);
